@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>อัพเดทข้อมูล - ระบบจัดการตารางงาน กปน.</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Sarabun', sans-serif;
+        }
+        .drop-zone {
+            border: 2px dashed #cbd5e0;
+            transition: all 0.3s ease;
+        }
+        .drop-zone.dragover {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .success-animation {
+            animation: scaleIn 0.3s ease;
+        }
+        @keyframes scaleIn {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-blue-50">
+    <div id="app" class="min-h-screen p-6">
+        <div class="max-w-4xl mx-auto">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl shadow-xl p-8 mb-6 text-white">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-4xl font-bold mb-2">อัพเดทข้อมูลตารางงาน</h1>
+                        <p class="text-blue-100">การประปานครหลวง (กปน.)</p>
+                    </div>
+                    <a href="index.html" 
+                       class="px-6 py-3 bg-white text-blue-600 rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                        </svg>
+                        กลับหน้าหลัก
+                    </a>
+                </div>
+            </div>
+
+            <!-- API Configuration -->
+            <div id="configSection" class="bg-white rounded-2xl shadow-xl p-6 mb-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">🔧 ตั้งค่า API</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Google Apps Script URL
+                        </label>
+                        <input type="text" 
+                               id="apiUrl" 
+                               placeholder="https://script.google.com/macros/s/xxxxx/exec"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <p class="text-sm text-gray-500 mt-2">
+                            💡 URL นี้จะถูกบันทึกใน localStorage เพื่อใช้ในครั้งถัดไป
+                        </p>
+                    </div>
+                    <button onclick="saveApiUrl();" 
+                            class="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        บันทึก URL
+                    </button>
+                </div>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="bg-white rounded-2xl shadow-xl p-6 mb-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">📤 อัพโหลดไฟล์ข้อมูล</h2>
+                
+                <div class="mb-6">
+                    <h3 class="font-semibold text-gray-700 mb-2">รองรับไฟล์ประเภท:</h3>
+                    <div class="flex gap-2">
+                        <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">Excel (.xlsx, .xls)</span>
+                        <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">CSV (.csv)</span>
+                    </div>
+                </div>
+
+                <!-- Drop Zone -->
+                <div id="dropZone" 
+                     class="drop-zone rounded-xl p-12 text-center cursor-pointer hover:bg-gray-50 transition-all"
+                     onclick="document.getElementById('fileInput').click();">
+                    <input type="file" 
+                           id="fileInput" 
+                           accept=".xlsx,.xls,.csv" 
+                           class="hidden" 
+                           onchange="handleFileSelect(event);">
+                    
+                    <svg class="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    <p class="text-lg font-semibold text-gray-700 mb-2">คลิกหรือลากไฟล์มาที่นี่</p>
+                    <p class="text-sm text-gray-500">รองรับไฟล์ Excel และ CSV</p>
+                </div>
+
+                <!-- File Info -->
+                <div id="fileInfo" class="mt-6 hidden">
+                    <div class="bg-blue-50 rounded-lg p-4">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <svg class="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                <div>
+                                    <p id="fileName" class="font-semibold text-gray-800"></p>
+                                    <p id="fileSize" class="text-sm text-gray-600"></p>
+                                    <p id="rowCount" class="text-sm text-blue-600 font-medium"></p>
+                                </div>
+                            </div>
+                            <button onclick="clearFile();" 
+                                    class="text-red-600 hover:bg-red-100 rounded-full p-2 transition-colors">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Preview Table -->
+                <div id="previewSection" class="mt-6 hidden">
+                    <h3 class="font-semibold text-gray-800 mb-3">ตัวอย่างข้อมูล (5 แถวแรก)</h3>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200">
+                        <table id="previewTable" class="w-full bg-white text-sm">
+                            <thead class="bg-gray-100">
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Upload Button -->
+                <div id="uploadSection" class="mt-6 hidden">
+                    <button onclick="uploadData();" 
+                            class="w-full px-6 py-4 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2 text-lg font-semibold">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                        </svg>
+                        อัพโหลดข้อมูลไปยัง Google Sheets
+                    </button>
+                </div>
+            </div>
+
+            <!-- Status Section -->
+            <div id="statusSection" class="hidden"></div>
+
+            <!-- Instructions -->
+            <div class="bg-white rounded-2xl shadow-xl p-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">📋 คำแนะนำ</h2>
+                <div class="space-y-4 text-gray-700">
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">1</div>
+                        <div>
+                            <h3 class="font-semibold mb-1">ตั้งค่า Google Apps Script URL</h3>
+                            <p class="text-sm text-gray-600">ใส่ URL ที่ได้จากการ Deploy Google Apps Script (ดูคู่มือใน SETUP_GUIDE.md)</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">2</div>
+                        <div>
+                            <h3 class="font-semibold mb-1">เตรียมไฟล์ข้อมูล</h3>
+                            <p class="text-sm text-gray-600">
+                                ไฟล์ Excel หรือ CSV ต้องมีคอลัมน์: <br>
+                                <code class="bg-gray-100 px-2 py-1 rounded">id, task, startDate, endDate, duration, responsible, department, category, status, progress</code>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">3</div>
+                        <div>
+                            <h3 class="font-semibold mb-1">อัพโหลดไฟล์</h3>
+                            <p class="text-sm text-gray-600">คลิกหรือลากไฟล์มาที่กรอบสีเทา ระบบจะแสดงตัวอย่างข้อมูล</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">4</div>
+                        <div>
+                            <h3 class="font-semibold mb-1">ตรวจสอบและยืนยัน</h3>
+                            <p class="text-sm text-gray-600">ตรวจสอบตัวอย่างข้อมูล แล้วกดปุ่ม "อัพโหลดข้อมูลไปยัง Google Sheets"</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div class="flex gap-2">
+                        <svg class="w-5 h-5 text-yellow-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                        <div>
+                            <p class="font-semibold text-yellow-800">ข้อควรระวัง:</p>
+                            <ul class="text-sm text-yellow-700 mt-1 list-disc list-inside space-y-1">
+                                <li>การอัพโหลดจะแทนที่ข้อมูลทั้งหมดใน Google Sheets</li>
+                                <li>แนะนำให้สำรองข้อมูลก่อนอัพโหลด</li>
+                                <li>วันที่ควรอยู่ในรูปแบบ YYYY-MM-DD (เช่น 2024-01-15)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let parsedData = [];
+        let fileName = '';
+        const STORAGE_KEY = 'sheet_api_url';
+
+        // โหลด API URL จาก localStorage
+        window.onload = function() {
+            const savedUrl = localStorage.getItem(STORAGE_KEY);
+            if (savedUrl) {
+                document.getElementById('apiUrl').value = savedUrl;
+            }
+        };
+
+        // บันทึก API URL
+        function saveApiUrl() {
+            const url = document.getElementById('apiUrl').value.trim();
+            if (!url) {
+                showStatus('กรุณากรอก URL', 'error');
+                return;
+            }
+            localStorage.setItem(STORAGE_KEY, url);
+            showStatus('บันทึก URL เรียบร้อย', 'success');
+        }
+
+        // Setup drag and drop
+        const dropZone = document.getElementById('dropZone');
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+        });
+
+        dropZone.addEventListener('drop', function(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files);
+        }, false);
+
+        function handleFileSelect(event) {
+            const files = event.target.files;
+            handleFiles(files);
+        }
+
+        function handleFiles(files) {
+            if (files.length === 0) return;
+
+            const file = files[0];
+            fileName = file.name;
+            const fileSize = (file.size / 1024).toFixed(2) + ' KB';
+
+            // แสดงข้อมูลไฟล์
+            document.getElementById('fileName').textContent = fileName;
+            document.getElementById('fileSize').textContent = fileSize;
+            document.getElementById('fileInfo').classList.remove('hidden');
+
+            // อ่านไฟล์
+            const reader = new FileReader();
+
+            if (fileName.endsWith('.csv')) {
+                reader.onload = function(e) {
+                    parseCSV(e.target.result);
+                };
+                reader.readAsText(file);
+            } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                reader.onload = function(e) {
+                    parseExcel(e.target.result);
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        }
+
+        function parseCSV(text) {
+            Papa.parse(text, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    processData(results.data);
+                }
+            });
+        }
+
+        function parseExcel(data) {
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            processData(jsonData);
+        }
+
+        function processData(data) {
+            if (data.length === 0) {
+                showStatus('ไฟล์ไม่มีข้อมูล', 'error');
+                return;
+            }
+
+            // แปลงข้อมูลให้อยู่ในรูปแบบที่ถูกต้อง
+            parsedData = data.map((row, index) => {
+                // ถ้าไม่มี id ให้สร้างใหม่
+                const id = row.id || (index + 1);
+                
+                // แปลงวันที่ให้อยู่ในรูปแบบ YYYY-MM-DD
+                const startDate = formatDate(row.startDate);
+                const endDate = formatDate(row.endDate);
+                
+                return {
+                    id: id,
+                    task: row.task || '',
+                    startDate: startDate,
+                    endDate: endDate,
+                    duration: parseInt(row.duration) || 0,
+                    responsible: row.responsible || '',
+                    department: row.department || '',
+                    category: row.category || '',
+                    status: row.status || '',
+                    progress: parseInt(row.progress) || 0
+                };
+            });
+
+            // แสดงจำนวนแถว
+            document.getElementById('rowCount').textContent = `พบข้อมูล ${parsedData.length} รายการ`;
+
+            // แสดงตัวอย่าง
+            showPreview(parsedData.slice(0, 5));
+
+            // แสดงปุ่มอัพโหลด
+            document.getElementById('uploadSection').classList.remove('hidden');
+        }
+
+        function formatDate(dateValue) {
+            if (!dateValue) return '';
+            
+            // ถ้าเป็นวันที่ Excel (number)
+            if (typeof dateValue === 'number') {
+                const date = XLSX.SSF.parse_date_code(dateValue);
+                return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+            }
+            
+            // ถ้าเป็น string
+            if (typeof dateValue === 'string') {
+                // ถ้าอยู่ในรูปแบบที่ถูกต้องแล้ว
+                if (dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    return dateValue;
+                }
+                
+                // พยายามแปลง
+                const date = new Date(dateValue);
+                if (!isNaN(date.getTime())) {
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
+                }
+            }
+            
+            return '';
+        }
+
+        function showPreview(data) {
+            const table = document.getElementById('previewTable');
+            const thead = table.querySelector('thead');
+            const tbody = table.querySelector('tbody');
+
+            // สร้าง header
+            const headers = ['ID', 'งาน', 'วันเริ่ม', 'วันสิ้นสุด', 'ระยะเวลา', 'ผู้รับผิดชอบ', 'ฝ่าย', 'หมวดหมู่', 'สถานะ', 'ความคืบหน้า'];
+            thead.innerHTML = `
+                <tr>
+                    ${headers.map(h => `<th class="px-4 py-2 text-left font-semibold text-gray-700">${h}</th>`).join('')}
+                </tr>
+            `;
+
+            // สร้าง body
+            tbody.innerHTML = data.map(row => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-2">${row.id}</td>
+                    <td class="px-4 py-2">${row.task}</td>
+                    <td class="px-4 py-2">${row.startDate}</td>
+                    <td class="px-4 py-2">${row.endDate}</td>
+                    <td class="px-4 py-2">${row.duration}</td>
+                    <td class="px-4 py-2">${row.responsible}</td>
+                    <td class="px-4 py-2">${row.department}</td>
+                    <td class="px-4 py-2">${row.category}</td>
+                    <td class="px-4 py-2">${row.status}</td>
+                    <td class="px-4 py-2">${row.progress}%</td>
+                </tr>
+            `).join('');
+
+            document.getElementById('previewSection').classList.remove('hidden');
+        }
+
+        function clearFile() {
+            document.getElementById('fileInput').value = '';
+            document.getElementById('fileInfo').classList.add('hidden');
+            document.getElementById('previewSection').classList.add('hidden');
+            document.getElementById('uploadSection').classList.add('hidden');
+            parsedData = [];
+            fileName = '';
+        }
+
+        async function uploadData() {
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            
+            if (!apiUrl) {
+                showStatus('กรุณากรอก Google Apps Script URL ก่อน', 'error');
+                return;
+            }
+
+            if (parsedData.length === 0) {
+                showStatus('ไม่มีข้อมูลให้อัพโหลด', 'error');
+                return;
+            }
+
+            // แสดง loading
+            showStatus('กำลังอัพโหลดข้อมูล...', 'loading');
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'updateAll',
+                        tasks: parsedData
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    showStatus(
+                        `✅ อัพโหลดสำเร็จ! อัพเดท ${result.count} รายการแล้ว<br>
+                        <a href="index.html" class="text-blue-600 underline hover:text-blue-800">คลิกเพื่อดูข้อมูลในหน้าหลัก</a>`,
+                        'success'
+                    );
+                    
+                    // ล้างข้อมูล
+                    setTimeout(() => {
+                        clearFile();
+                    }, 3000);
+                } else {
+                    showStatus('❌ เกิดข้อผิดพลาด: ' + result.message, 'error');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showStatus('❌ เกิดข้อผิดพลาดในการอัพโหลด: ' + error.message, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusSection = document.getElementById('statusSection');
+            statusSection.classList.remove('hidden');
+
+            let bgColor, textColor, icon;
+            
+            if (type === 'success') {
+                bgColor = 'bg-green-50 border-green-200';
+                textColor = 'text-green-800';
+                icon = `<svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                       </svg>`;
+            } else if (type === 'error') {
+                bgColor = 'bg-red-50 border-red-200';
+                textColor = 'text-red-800';
+                icon = `<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                       </svg>`;
+            } else if (type === 'loading') {
+                bgColor = 'bg-blue-50 border-blue-200';
+                textColor = 'text-blue-800';
+                icon = '<div class="loading-spinner"></div>';
+            }
+
+            statusSection.innerHTML = `
+                <div class="bg-white rounded-2xl shadow-xl p-6 success-animation">
+                    <div class="${bgColor} border rounded-xl p-6">
+                        <div class="flex items-start gap-4">
+                            ${icon}
+                            <div class="flex-1 ${textColor}">
+                                ${message}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Auto hide success message
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusSection.classList.add('hidden');
+                }, 5000);
+            }
+        }
+    </script>
+</body>
+</html>
