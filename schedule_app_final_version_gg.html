@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจัดการตารางงาน - กปน.</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Sarabun', sans-serif;
+        }
+        .timeline-bar {
+            transition: all 0.3s ease;
+        }
+        .timeline-bar:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .modal-overlay {
+            backdrop-filter: blur(4px);
+        }
+        .task-card {
+            transition: all 0.2s;
+        }
+        .task-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        /* สีสำหรับฝ่ายต่างๆ */
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+        /* Print styles */
+        @media print {
+            body {
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+            }
+            .no-print {
+                display: none !important;
+            }
+            @page {
+                size: A4;
+                margin: 1cm;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-blue-50">
+    <div id="app" class="min-h-screen p-6"></div>
+
+    <script>
+        // 
+        //let data
+          // ================================
+        // Google Sheets Configuration
+        // ================================
+        const GOOGLE_SHEETS_CONFIG = {
+            // ใส่ URL ของ Web App ที่ Deploy จาก Google Apps Script
+            WEB_APP_URL: 'https://script.google.com/macros/s/AKfycby5LrHFAylPL7lC5Xrq_ZYWGoV7JvdN6lafuEc_3zgX887S0dkB35TJYBoFr4dWF3hcFA/exec',
+            
+            // ตัวเลือกการใช้งาน
+            USE_GOOGLE_SHEETS: true,  // true = ดึงข้อมูลจาก Google Sheets, false = ใช้ข้อมูล mock
+            AUTO_SAVE: true,          // บันทึกอัตโนมัติเมื่อแก้ไข
+            AUTO_REFRESH: true,       // รีเฟรชข้อมูลอัตโนมัติ
+            REFRESH_INTERVAL: 5       // รีเฟรชทุก 5 นาที
+        };
+
+        // ================================
+        // Global Variables
+        // ================================
+        let data = [];
+     
+        let autoRefreshInterval = null;
+        let lastSyncTime = null;
+
+        // ================================
+        // Google Sheets API Functions
+        // ================================
+
+        /**
+         * โหลดข้อมูลจาก Google Sheets
+         */
+        async function loadDataFromGoogleSheets() {
+            if (!GOOGLE_SHEETS_CONFIG.USE_GOOGLE_SHEETS) {
+                console.log('Google Sheets integration is disabled');
+                return null;
+            }
+            
+            try {
+                showLoadingIndicator('กำลังโหลดข้อมูลจาก Google Sheets...');
+                
+                const response = await fetch(
+                    `${GOOGLE_SHEETS_CONFIG.WEB_APP_URL}?action=getAllTasks&timestamp=${Date.now()}`,
+                    {
+                        method: 'GET',
+                        mode: 'cors',
+                        cache: 'no-cache'
+                    }
+                );
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                hideLoadingIndicator();
+                
+                if (result.success) {
+                    console.log(`✓ โหลดข้อมูลสำเร็จ: ${result.data?.length || 0} รายการ`);
+                    lastSyncTime = new Date();
+                    
+                    // แปลงข้อมูลเป็นรูปแบบที่เว็บแอปใช้งาน
+                    return transformGoogleSheetsData(result.data);
+                } else {
+                    throw new Error(result.message || 'Unknown error');
+                }
+            } catch (error) {
+                console.error('เกิดข้อผิดพลาดในการโหลดข้อมูล:', error);
+                hideLoadingIndicator();
+                showErrorMessage('ไม่สามารถโหลดข้อมูลจาก Google Sheets ได้: ' + error.message);
+                return null;
+            }
+        }
+
+        /**
+         * แปลงข้อมูลจาก Google Sheets เป็นรูปแบบที่เว็บแอปใช้
+         */
+        function transformGoogleSheetsData(sheetsData) {
+            if (!sheetsData || !Array.isArray(sheetsData)) {
+                return [];
+            }
+            
+            return sheetsData.map(row => ({
+                id: row['ID'] || row['taskId'] || '',
+                department: row['ฝ่าย'] || row['department'] || '',
+                division: row['กอง'] || row['division'] || '',
+                month: row['Start month'] || row['month'] || '',
+                year: row['YEAR'] || row['year'] || '',
+                week: row['Start WeeK'] || row['week'] || '',
+                duration: row['Duration week'] || row['duration'] || '',
+                process: row['Process ชื่อกระบวนการทำงาน'] || row['process'] || '',
+                category: row['หมวดงาน'] || row['category'] || '',
+                inputOwner: row['หน่วยงานเจ้าของ Input'] || row['inputOwner'] || '',
+                hasExternalInput: row['หน่วยงานเจ้าของ Input มีหน่วยงานภายนอกหรือไม่'] || row['hasExternalInput'] || '',
+                inputName: row['ชื่อ  Input'] || row['inputName'] || '',
+                task: row['Task กิจกรรม ทำอะไร'] || row['task'] || '',
+                outputName: row['ชื่อ Output'] || row['outputName'] || '',
+                outputReceiver: row['หน่วยงานที่รับ Output'] || row['outputReceiver'] || '',
+                hasExternalOutput: row['หน่วยงานที่รับ Output มีหน่วยงานภายนอกหรือไม่'] || row['hasExternalOutput'] || '',
+                
+                // ข้อมูลสถานะและความคืบหน้า
+                status: row['สถานะ'] || row['status'] || 'not_started',
+                progress: parseInt(row['%ความก้าวหน้า'] || row['progress']) || 0,
+                actualStartDate: row['วันที่เริ่มจริง'] || row['actualStartDate'] || null,
+                actualEndDate: row['วันที่เสร็จจริง'] || row['actualEndDate'] || null,
+                responsible: row['ผู้รับผิดชอบ'] || row['responsible'] || '',
+                notes: row['หมายเหตุปัจจุบัน'] || row['notes'] || '',
+                lastUpdate: row['วันที่อัพเดตล่าสุด'] || row['lastUpdate'] || null,
+                updater: row['ผู้อัพเดต'] || row['updater'] || ''
+            }));
+        }
+
+        /**
+         * บันทึกความคืบหน้าไปยัง Google Sheets
+         */
+        async function saveProgressToGoogleSheets(taskId, progressData) {
+            if (!GOOGLE_SHEETS_CONFIG.USE_GOOGLE_SHEETS) {
+                console.log('Google Sheets integration is disabled');
+                return true;
+            }
+            
+            try {
+                showLoadingIndicator('กำลังบันทึกข้อมูล...');
+                
+                const response = await fetch(GOOGLE_SHEETS_CONFIG.WEB_APP_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'updateProgress',
+                        taskId: taskId,
+                        status: progressData.status,
+                        progress: progressData.progress,
+                        actualStartDate: progressData.actualStartDate,
+                        actualEndDate: progressData.actualEndDate,
+                        notes: progressData.notes,
+                        updatedBy: progressData.updater || 'Web App User',
+                        timestamp: new Date().toISOString()
+                    })
+                });
+                
+                const result = await response.json();
+                
+                hideLoadingIndicator();
+                
+                if (result.success) {
+                    console.log('✓ บันทึกข้อมูลสำเร็จ');
+                    showSuccessMessage('บันทึกข้อมูลสำเร็จ');
+                    lastSyncTime = new Date();
+                    return true;
+                } else {
+                    throw new Error(result.message || 'Unknown error');
+                }
+            } catch (error) {
+                console.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล:', error);
+                hideLoadingIndicator();
+                showErrorMessage('ไม่สามารถบันทึกข้อมูลได้: ' + error.message);
+                return false;
+            }
+        }
+
+        /**
+         * รีเฟรชข้อมูลแบบ Manual
+         */
+        async function manualRefresh() {
+            const newData = await loadDataFromGoogleSheets();
+            if (newData) {
+                data = newData;
+                render();
+                showSuccessMessage('รีเฟรชข้อมูลสำเร็จ');
+            }
+        }
+
+        /**
+         * เริ่ม Auto-refresh
+         */
+        function startAutoRefresh() {
+            if (!GOOGLE_SHEETS_CONFIG.AUTO_REFRESH) return;
+            
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            
+            autoRefreshInterval = setInterval(async () => {
+                console.log('Auto-refreshing data...');
+                const newData = await loadDataFromGoogleSheets();
+                if (newData) {
+                    data = newData;
+                    render();
+                }
+            }, GOOGLE_SHEETS_CONFIG.REFRESH_INTERVAL * 60 * 1000);
+            
+            console.log(`✓ Auto-refresh enabled (every ${GOOGLE_SHEETS_CONFIG.REFRESH_INTERVAL} minutes)`);
+        }
+
+        /**
+         * หยุด Auto-refresh
+         */
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                console.log('✓ Auto-refresh disabled');
+            }
+        }
+
+        // ================================
+        // UI Helper Functions
+        // ================================
+
+        /**
+         * แสดง Loading Indicator
+         */
+        function showLoadingIndicator(message = 'กำลังโหลด...') {
+            const existingIndicator = document.getElementById('loading-indicator');
+            if (existingIndicator) {
+                existingIndicator.remove();
+            }
+            
+            const indicator = document.createElement('div');
+            indicator.id = 'loading-indicator';
+            indicator.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            indicator.innerHTML = `
+                <div class="bg-white rounded-lg p-6 shadow-xl max-w-sm">
+                    <div class="flex items-center space-x-4">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <span class="text-gray-700 font-semibold">${message}</span>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(indicator);
+        }
+
+        /**
+         * ซ่อน Loading Indicator
+         */
+        function hideLoadingIndicator() {
+            const indicator = document.getElementById('loading-indicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        /**
+         * แสดงข้อความสำเร็จ
+         */
+        function showSuccessMessage(message) {
+            showToast(message, 'success');
+        }
+
+        /**
+         * แสดงข้อความผิดพลาด
+         */
+        function showErrorMessage(message) {
+            showToast(message, 'error');
+        }
+
+        /**
+         * แสดง Toast Notification
+         */
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in ${
+                type === 'success' ? 'bg-green-500' :
+                type === 'error' ? 'bg-red-500' :
+                'bg-blue-500'
+            } text-white font-semibold`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+
+        /**
+         * ฟอร์แมตวันที่และเวลาล่าสุดที่ sync
+         */
+        function getLastSyncTimeText() {
+            if (!lastSyncTime) return '';
+            
+            const now = new Date();
+            const diff = Math.floor((now - lastSyncTime) / 1000); // seconds
+            
+            if (diff < 60) return 'เมื่อสักครู่';
+            if (diff < 3600) return `${Math.floor(diff / 60)} นาทีที่แล้ว`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)} ชั่วโมงที่แล้ว`;
+            
+            return lastSyncTime.toLocaleString('th-TH');
+        }
+
+        // ================================
+        // Mock Data (Fallback)
+        // ================================
+        const mockData = [
+            {
+                id: 'TASK_0001',
+                department: 'กทน.',
+                division: 'กทน.1',
+                month: 'OCT',
+                year: '2025',
+                week: '1',
+                duration: '1',
+                process: 'กระบวนการทดสอบ 1',
+                category: 'การบริหารจัดการ',
+                inputOwner: 'กทน.1',
+                hasExternalInput: 'ไม่มี',
+                inputName: 'ข้อมูลทดสอบ',
+                task: 'ทดสอบระบบ',
+                outputName: 'รายงานทดสอบ',
+                outputReceiver: 'ผู้บริหาร',
+                hasExternalOutput: 'ไม่มี',
+                status: 'not_started',
+                progress: 0,
+                actualStartDate: null,
+                actualEndDate: null,
+                responsible: '',
+                notes: '',
+                lastUpdate: null,
+                updater: ''
+            }
+        ];
+
+        
+        let view = 'table';
+        let searchTerm = '';
+        let filterProcess = 'all';
+        let filterDivision = 'all';
+        let filterDepartment = 'all';
+        let filterMonth = 'all';
+        let filterStatus = 'all';
+        let progress = {};
+        let editingTask = null;
+        let reportFilter = 'all'; // สำหรับ filter ในหน้ารายงาน
+        let urgentTasksPage = 1; // หน้าปัจจุบันของงานเร่งด่วน
+        const urgentTasksPerPage = 10; // จำนวนรายการต่อหน้า
+        let calendarFilter = 'all'; // filter สำหรับหน้าปฏิทิน: 'all', 'new', 'ongoing'
+
+        const monthOrder = ['OCT', 'NOV', 'DEC', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP'];
+        const monthThai = {
+            'OCT': 'ตุลาคม', 'NOV': 'พฤศจิกายน', 'DEC': 'ธันวาคม',
+            'JAN': 'มกราคม', 'FEB': 'กุมภาพันธ์', 'MAR': 'มีนาคม',
+            'APR': 'เมษายน', 'MAY': 'พฤษภาคม', 'JUN': 'มิถุนายน',
+            'JUL': 'กรกฎาคม', 'AUG': 'สิงหาคม', 'SEP': 'กันยายน'
+        };
+        
+        // แปลงเลขเดือน (1-12) เป็นชื่อเดือน
+        const monthNumToName = {
+            1: 'JAN', 2: 'FEB', 3: 'MAR', 4: 'APR', 5: 'MAY', 6: 'JUN',
+            7: 'JUL', 8: 'AUG', 9: 'SEP', 10: 'OCT', 11: 'NOV', 12: 'DEC'
+        };
+
+        // สีสำหรับแต่ละฝ่าย
+        const departmentColors = {
+            'ฝ่ายบริหารความเสี่ยง (ฝบส.)': {
+                bg: 'bg-blue-500',
+                bgLight: 'bg-blue-100',
+                text: 'text-blue-800',
+                border: 'border-blue-300',
+                gradient: 'from-blue-500 to-blue-600'
+            },
+            'ฝ่ายนโยบายและยุทธศาสตร์ (ฝนย.)': {
+                bg: 'bg-purple-500',
+                bgLight: 'bg-purple-100',
+                text: 'text-purple-800',
+                border: 'border-purple-300',
+                gradient: 'from-purple-500 to-purple-600'
+            }
+        };
+
+        function getDepartmentColor(department, type = 'bg') {
+            const colors = departmentColors[department];
+            if (!colors) {
+                return type === 'bg' ? 'bg-gray-500' : 
+                       type === 'bgLight' ? 'bg-gray-100' :
+                       type === 'text' ? 'text-gray-800' :
+                       type === 'border' ? 'border-gray-300' :
+                       'from-gray-500 to-gray-600';
+            }
+            return colors[type];
+        }
+
+        function truncateText(text, maxLength = 50) {
+            if (text.length <= maxLength) return text;
+            return text.substring(0, maxLength - 3) + '...';
+        }
+
+        function getMonthIndex(month) {
+            return monthOrder.indexOf(month.toUpperCase());
+        }
+
+        function calculateActualDates(monthNum, year, week, duration) {
+            // monthNum คือเดือน 1-12, year คือปี ค.ศ., duration เป็นสัปดาห์ (รองรับทศนิยม)
+            // แปลงเป็น JavaScript Date (month เป็น 0-indexed)
+            const firstDay = new Date(year, monthNum - 1, 1);
+            
+            // หาวันจันทร์แรกของเดือน (0=Sunday, 1=Monday, ..., 6=Saturday)
+            const firstDayOfWeek = firstDay.getDay();
+            let daysUntilMonday;
+            
+            if (firstDayOfWeek === 1) {
+                // วันแรกเป็นวันจันทร์
+                daysUntilMonday = 0;
+            } else if (firstDayOfWeek === 0) {
+                // วันแรกเป็นวันอาทิตย์ -> จันทร์ถัดไปคือวันที่ 2
+                daysUntilMonday = 1;
+            } else {
+                // วันอื่นๆ
+                daysUntilMonday = 8 - firstDayOfWeek;
+            }
+            
+            const firstMonday = new Date(year, monthNum - 1, 1 + daysUntilMonday);
+            
+            // คำนวณวันเริ่มต้นตาม week
+            const startDate = new Date(firstMonday);
+            startDate.setDate(firstMonday.getDate() + (parseInt(week) - 1) * 7);
+            
+            // คำนวณวันสิ้นสุด - รองรับทศนิยม (แปลงเป็นวัน)
+            const endDate = new Date(startDate);
+            const durationDays = Math.max(1, Math.round(parseFloat(duration) * 7)); // อย่างน้อย 1 วัน
+            endDate.setDate(startDate.getDate() + durationDays - 1);
+            
+            return { startDate, endDate };
+        }
+
+        function formatDate(date) {
+            return date.toLocaleDateString('th-TH', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        }
+
+        function getTaskStatus(taskId, startDate, endDate) {
+            const taskProgress = progress[taskId] || { status: 'not_started', progress: 0 };
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // Reset เวลาเป็น 00:00:00 สำหรับเปรียบเทียบวันที่
+            
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            
+            const end = new Date(endDate);
+            end.setHours(0, 0, 0, 0);
+            
+            // ถ้าเสร็จแล้ว
+            if (taskProgress.status === 'completed' || taskProgress.progress >= 100) return 'completed';
+            
+            // ถ้ายังไม่เริ่มและยังไม่ถึงวันเริ่ม
+            if (today < start && taskProgress.status === 'not_started') return 'not_started';
+            
+            // ถ้าเลยวันสิ้นสุดแล้วและยังไม่เสร็จ (งานต้องเริ่มแล้ว)
+            if (today > end && taskProgress.status !== 'completed' && taskProgress.progress < 100) {
+                return 'overdue';
+            }
+            
+            // ถ้าเริ่มช้ากว่ากำหนด
+            if (taskProgress.actualStartDate && new Date(taskProgress.actualStartDate) > start) {
+                return 'delayed';
+            }
+            
+            // ถ้ากำลังดำเนินการ
+            if (taskProgress.status === 'in_progress' && taskProgress.progress > 0) {
+                return 'in_progress';
+            }
+            
+            // ถ้าอยู่ในช่วงเวลาที่ต้องทำและเริ่มแล้ว
+            if (today >= start && today <= end) {
+                return 'on_track';
+            }
+            
+            return 'not_started';
+        }
+
+        function getStatusColor(status) {
+            switch (status) {
+                case 'completed': return 'bg-green-500';
+                case 'in_progress': return 'bg-blue-500';
+                case 'on_track': return 'bg-blue-500';
+                case 'delayed': return 'bg-orange-500';
+                case 'overdue': return 'bg-red-500';
+                default: return 'bg-gray-400';
+            }
+        }
+
+        function getStatusText(status) {
+            switch (status) {
+                case 'completed': return 'เสร็จสิ้น';
+                case 'in_progress': return 'กำลังดำเนินการ';
+                case 'on_track': return 'ตามแผน';
+                case 'delayed': return 'ล่าช้า';
+                case 'overdue': return 'เกินกำหนด';
+                default: return 'ยังไม่เริ่ม';
+            }
+        }
+
+        function getFilteredData() {
+            return data.filter(item => {
+                const taskId = `${item.id}`;
+                
+                const { startDate, endDate } = calculateActualDates(
+                    item.month,
+                    item.year,
+                    item.startWeek,
+                    item.durationWeeks
+                );
+                const status = getTaskStatus(taskId, startDate, endDate);
+
+                // แปลงเดือนเป็น string สำหรับเปรียบเทียบ filter
+                const monthName = monthNumToName[item.month] || '';
+
+                const matchSearch = searchTerm === '' || 
+                    Object.values(item).some(val => 
+                        String(val).toLowerCase().includes(searchTerm.toLowerCase())
+                    );
+                const matchDepartment = filterDepartment === 'all' || item.department === filterDepartment;
+                const matchProcess = filterProcess === 'all' || item.process === filterProcess;
+                const matchDivision = filterDivision === 'all' || item.division === filterDivision;
+                const matchMonth = filterMonth === 'all' || monthName === filterMonth;
+                const matchStatus = filterStatus === 'all' || status === filterStatus;
+                
+                return matchSearch && matchDepartment && matchProcess && matchDivision && matchMonth && matchStatus;
+            }).sort((a, b) => {
+                // เรียงตามปีแล้วเดือน
+                if (a.year !== b.year) return a.year - b.year;
+                if (a.month !== b.month) return a.month - b.month;
+                return a.startWeek - b.startWeek;
+            });
+        }
+
+        function getUniqueDepartments() {
+            return [...new Set(data.map(item => item.department))].sort();
+        }
+
+        function getUniqueProcesses() {
+            return [...new Set(data.map(item => item.process))].sort();
+        }
+
+        function getUniqueDivisions() {
+            return [...new Set(data.map(item => item.division))].sort();
+        }
+
+        function getUniqueMonths() {
+            const months = [...new Set(data.map(item => monthNumToName[item.month]))];
+            return months.filter(m => m).sort((a, b) => getMonthIndex(a) - getMonthIndex(b));
+        }
+
+        function openProgressModal(task, taskId) {
+            editingTask = { task, taskId };
+            render();
+        }
+
+        function closeProgressModal() {
+            editingTask = null;
+            render();
+        }
+
+        function saveProgress() {
+            if (!editingTask) return;
+            
+            const form = document.getElementById('progressForm');
+            const formData = new FormData(form);
+            
+            progress[editingTask.taskId] = {
+                status: formData.get('status'),
+                progress: parseInt(formData.get('progress')),
+                actualStartDate: formData.get('actualStartDate') || null,
+                actualEndDate: formData.get('actualEndDate') || null,
+                notes: formData.get('notes') || ''
+            };
+            
+            closeProgressModal();
+        }
+
+        function renderProgressModal() {
+            if (!editingTask) return '';
+            
+            const { task, taskId } = editingTask;
+            const { startDate, endDate } = calculateActualDates(
+                task.month,
+                task.year,
+                task.startWeek,
+                task.durationWeeks
+            );
+            const currentProgress = progress[taskId] || { 
+                status: 'not_started', 
+                progress: 0,
+                actualStartDate: null,
+                actualEndDate: null,
+                notes: ''
+            };
+
+            return `
+                <div class="fixed inset-0 bg-black bg-opacity-50 modal-overlay flex items-center justify-center z-50" onclick="closeProgressModal()">
+                    <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="flex-1 pr-4">
+                                <h3 class="text-xl font-bold text-gray-800">${task.task}</h3>
+                                <p class="text-sm text-gray-600 mt-1">${task.category}</p>
+                                <p class="text-xs text-gray-500 mt-1">${task.division}</p>
+                            </div>
+                            <button onclick="closeProgressModal()" class="text-gray-400 hover:text-gray-600 flex-shrink-0">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <form id="progressForm" class="space-y-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">วันที่เริ่มตามแผน</label>
+                                    <div class="bg-gray-100 px-3 py-2 rounded-lg text-sm">${formatDate(startDate)}</div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">วันที่สิ้นสุดตามแผน</label>
+                                    <div class="bg-gray-100 px-3 py-2 rounded-lg text-sm">${formatDate(endDate)}</div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">สถานะ</label>
+                                <select name="status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    <option value="not_started" ${currentProgress.status === 'not_started' ? 'selected' : ''}>ยังไม่เริ่ม</option>
+                                    <option value="in_progress" ${currentProgress.status === 'in_progress' ? 'selected' : ''}>กำลังดำเนินการ</option>
+                                    <option value="completed" ${currentProgress.status === 'completed' ? 'selected' : ''}>เสร็จสิ้น</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">ความก้าวหน้า (%)</label>
+                                <div class="flex items-center gap-4">
+                                    <input type="range" name="progress" min="0" max="100" value="${currentProgress.progress}" 
+                                        oninput="document.getElementById('progressValue').textContent = this.value + '%'; document.getElementById('progressBar').style.width = this.value + '%'"
+                                        class="flex-1" />
+                                    <span id="progressValue" class="font-semibold text-lg w-12 text-right">${currentProgress.progress}%</span>
+                                </div>
+                                <div class="mt-2 bg-gray-200 rounded-full h-3">
+                                    <div id="progressBar" class="bg-blue-600 rounded-full h-3 transition-all" style="width: ${currentProgress.progress}%"></div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">วันที่เริ่มจริง</label>
+                                    <input type="date" name="actualStartDate" value="${currentProgress.actualStartDate || ''}"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">วันที่เสร็จจริง</label>
+                                    <input type="date" name="actualEndDate" value="${currentProgress.actualEndDate || ''}"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">หมายเหตุ</label>
+                                <textarea name="notes" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="บันทึกข้อมูลเพิ่มเติม...">${currentProgress.notes || ''}</textarea>
+                            </div>
+                        </form>
+
+                        <div class="flex gap-3 mt-6">
+                            <button onclick="saveProgress()" class="flex-1 bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                </svg>
+                                บันทึก
+                            </button>
+                            <button onclick="closeProgressModal()" class="px-6 py-2 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50 transition-colors">
+                                ยกเลิก
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTableView(filteredData) {
+            return `
+                <div class="overflow-x-auto">
+                    <table class="min-w-full bg-white border border-gray-300">
+                        <thead class="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">สถานะ</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">ความก้าวหน้า</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">เดือน</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">วันที่เริ่ม</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">วันที่สิ้นสุด</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">กอง</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">หมวดงาน</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold">งาน/กิจกรรม</th>
+                                <th class="px-4 py-3 text-center text-sm font-semibold">จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filteredData.map((item, index) => {
+                                const taskId = `${item.id}`;
+                                const monthName = monthNumToName[item.month] || 'OCT';
+                                const { startDate, endDate } = calculateActualDates(
+                                    item.month,
+                                    item.year,
+                                    item.startWeek,
+                                    item.durationWeeks
+                                );
+                                const status = getTaskStatus(taskId, startDate, endDate);
+                                const taskProgress = progress[taskId] || { progress: 0 };
+                                const statusColor = getStatusColor(status);
+
+                                return `
+                                    <tr class="${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'} hover:bg-blue-50 transition-colors">
+                                        <td class="px-4 py-3">
+                                            <span class="px-3 py-1 rounded-full text-xs font-semibold text-white ${statusColor}">
+                                                ${getStatusText(status)}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex items-center gap-2">
+                                                <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                                    <div class="${statusColor} rounded-full h-2 transition-all" style="width: ${taskProgress.progress}%"></div>
+                                                </div>
+                                                <span class="text-xs font-semibold text-gray-600 w-10 text-right">${taskProgress.progress}%</span>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm">${monthThai[monthName]}</td>
+                                        <td class="px-4 py-3 text-sm text-gray-700">${formatDate(startDate)}</td>
+                                        <td class="px-4 py-3 text-sm text-gray-700">${formatDate(endDate)}</td>
+                                        <td class="px-4 py-3 text-sm text-gray-800">${item.division}</td>
+                                        <td class="px-4 py-3 text-sm text-gray-700">${item.category}</td>
+                                        <td class="px-4 py-3 text-sm text-gray-700">${item.task}</td>
+                                        <td class="px-4 py-3 text-center">
+                                            <button onclick='openProgressModal(${JSON.stringify(item).replace(/'/g, "&#39;")}, "${taskId}")'
+                                                class="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors">
+                                                อัปเดต
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                    ${filteredData.length === 0 ? `
+                        <div class="text-center py-12 text-gray-500">
+                            <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <p class="text-lg">ไม่พบข้อมูลที่ค้นหา</p>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        function renderTimelineView(filteredData) {
+            const allDates = filteredData.flatMap(item => {
+                const { startDate, endDate } = calculateActualDates(item.month, item.year, item.startWeek, item.durationWeeks);
+                return [startDate, endDate];
+            });
+            
+            const minDate = new Date(Math.min(...allDates));
+            const maxDate = new Date(Math.max(...allDates));
+            const totalDays = Math.floor((maxDate - minDate) / (1000 * 60 * 60 * 24));
+
+            // สร้างเดือนสำหรับ header
+            const months = [];
+            let currentDate = new Date(minDate);
+            currentDate.setDate(1);
+            
+            while (currentDate <= maxDate) {
+                const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+                const monthStart = new Date(currentDate);
+                const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+                
+                const visibleDays = monthEnd > maxDate 
+                    ? Math.floor((maxDate - monthStart) / (1000 * 60 * 60 * 24)) + 1
+                    : daysInMonth;
+                
+                const widthPercent = (visibleDays / totalDays) * 100;
+                
+                months.push({
+                    month: currentDate.getMonth(),
+                    year: currentDate.getFullYear(),
+                    widthPercent
+                });
+                
+                currentDate.setMonth(currentDate.getMonth() + 1);
+            }
+
+            const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+            return `
+                <div class="bg-white rounded-lg shadow p-4 overflow-x-auto">
+                    <div class="min-w-[1200px]">
+                        <!-- Timeline Header -->
+                        <div class="flex border-b-2 border-gray-300 mb-4">
+                            <div class="w-72 flex-shrink-0 font-semibold text-gray-700 py-2 pr-4">งาน</div>
+                            <div class="flex-1 flex">
+                                ${months.map((m, idx) => `
+                                    <div 
+                                        class="border-l border-gray-200 text-center py-2 text-xs font-semibold text-gray-600"
+                                        style="width: ${m.widthPercent}%"
+                                    >
+                                        ${thaiMonths[m.month]} ${m.year + 543}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Timeline Bars -->
+                        <div class="space-y-2">
+                            ${filteredData.map((item) => {
+                                const taskId = `${item.id}`;
+                                const { startDate, endDate } = calculateActualDates(item.month, item.year, item.startWeek, item.durationWeeks);
+                                const status = getTaskStatus(taskId, startDate, endDate);
+                                const statusColor = getStatusColor(status);
+                                
+                                const leftPercent = ((startDate - minDate) / (1000 * 60 * 60 * 24) / totalDays) * 100;
+                                const widthPercent = ((endDate - startDate) / (1000 * 60 * 60 * 24) / totalDays) * 100;
+                                
+                                return `
+                                    <div class="flex items-center">
+                                        <div class="w-72 flex-shrink-0 pr-4 text-sm text-gray-700 truncate" title="${item.category}">
+                                            ${item.category}
+                                        </div>
+                                        <div class="flex-1 relative h-8">
+                                            <div 
+                                                class="timeline-bar absolute h-6 ${statusColor} rounded cursor-pointer"
+                                                style="left: ${leftPercent}%; width: ${Math.max(widthPercent, 0.5)}%; min-width: 4px;"
+                                                onclick='openProgressModal(${JSON.stringify(item).replace(/'/g, "&#39;")}, "${taskId}")'
+                                                title="${item.category}\n${formatDate(startDate)} - ${formatDate(endDate)}\nระยะเวลา: ${item.durationWeeks} สัปดาห์\nสถานะ: ${getStatusText(status)}"
+                                            >
+                                                <span class="text-white text-xs px-2 truncate block leading-6">
+                                                    ${item.durationWeeks}w
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCalendarView(filteredData) {
+            // จัดกลุ่มงานตามเดือนที่เริ่มต้น
+            const tasksByMonth = {};
+            
+            filteredData.forEach(item => {
+                const { startDate, endDate } = calculateActualDates(
+                    item.month,
+                    item.year,
+                    item.startWeek,
+                    item.durationWeeks
+                );
+                
+                // วนลูปทุกเดือนที่งานนี้ครอบคลุม
+                const startMonth = startDate.getMonth(); // 0-11
+                const startYear = startDate.getFullYear();
+                const endMonth = endDate.getMonth();
+                const endYear = endDate.getFullYear();
+                
+                let currentDate = new Date(startYear, startMonth, 1);
+                const lastDate = new Date(endYear, endMonth, 1);
+                
+                while (currentDate <= lastDate) {
+                    const monthNum = currentDate.getMonth() + 1; // 1-12
+                    const monthName = monthNumToName[monthNum];
+                    
+                    if (!tasksByMonth[monthName]) {
+                        tasksByMonth[monthName] = [];
+                    }
+                    
+                    // ตรวจสอบว่างานเริ่มในเดือนนี้หรือไม่
+                    const isNewTask = (startDate.getMonth() === currentDate.getMonth() && 
+                                      startDate.getFullYear() === currentDate.getFullYear());
+                    
+                    // เพิ่มข้อมูลประเภทงาน
+                    const taskWithType = {
+                        ...item,
+                        taskType: isNewTask ? 'new' : 'ongoing'
+                    };
+                    
+                    tasksByMonth[monthName].push(taskWithType);
+                    
+                    // ไปเดือนถัดไป
+                    currentDate.setMonth(currentDate.getMonth() + 1);
+                }
+            });
+
+            const uniqueMonths = getUniqueMonths();
+
+            return `
+                <!-- Filter สำหรับปฏิทิน -->
+                <div class="mb-6 bg-white rounded-lg shadow-md p-4">
+                    <div class="flex items-center gap-4">
+                        <label class="text-sm font-semibold text-gray-700">แสดงงาน:</label>
+                        <select onchange="calendarFilter = this.value; render();" 
+                                class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="all" ${calendarFilter === 'all' ? 'selected' : ''}>งานทั้งหมด</option>
+                            <option value="new" ${calendarFilter === 'new' ? 'selected' : ''}>งานที่เริ่มในเดือนนี้</option>
+                            <option value="ongoing" ${calendarFilter === 'ongoing' ? 'selected' : ''}>งานที่ดำเนินการต่อเนื่อง</option>
+                        </select>
+                        <div class="flex items-center gap-4 ml-auto">
+                            <div class="flex items-center gap-2">
+                                <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded">New</span>
+                                <span class="text-sm text-gray-600">งานใหม่</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="px-2 py-1 bg-gray-200 text-gray-700 text-xs font-semibold rounded">Cont</span>
+                                <span class="text-sm text-gray-600">งานต่อเนื่อง</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    ${uniqueMonths.map(month => {
+                        let tasksInMonth = tasksByMonth[month] || [];
+                        
+                        // กรองงานตาม calendarFilter
+                        if (calendarFilter === 'new') {
+                            tasksInMonth = tasksInMonth.filter(t => t.taskType === 'new');
+                        } else if (calendarFilter === 'ongoing') {
+                            tasksInMonth = tasksInMonth.filter(t => t.taskType === 'ongoing');
+                        }
+                        
+                        const newTasksCount = (tasksByMonth[month] || []).filter(t => t.taskType === 'new').length;
+                        const ongoingTasksCount = (tasksByMonth[month] || []).filter(t => t.taskType === 'ongoing').length;
+                        
+                        return `
+                        <div class="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
+                            <div class="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-3">
+                                <h3 class="text-lg font-bold">${monthThai[month]}</h3>
+                                <p class="text-xs text-blue-100">
+                                    ${calendarFilter === 'all' ? `${tasksInMonth.length} งาน (${newTasksCount} ใหม่, ${ongoingTasksCount} ต่อเนื่อง)` : 
+                                      calendarFilter === 'new' ? `${tasksInMonth.length} งานใหม่` :
+                                      `${tasksInMonth.length} งานต่อเนื่อง`}
+                                </p>
+                            </div>
+                            <div class="p-4 space-y-3 max-h-96 overflow-y-auto">
+                                ${tasksInMonth.length === 0 ? `
+                                    <div class="text-center py-8 text-gray-400">
+                                        <svg class="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+                                        </svg>
+                                        <p class="text-sm">ไม่มีงานในเดือนนี้</p>
+                                    </div>
+                                ` : tasksInMonth.map(item => renderTaskCard(item, item.taskType)).join('')}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+                </div>
+            `;
+        }
+
+        
+        function renderTaskCard(item, type) {
+            const taskId = `${item.id}`;
+            const { startDate, endDate } = calculateActualDates(
+                item.month,
+                item.year,
+                item.startWeek,
+                item.durationWeeks
+            );
+            const status = getTaskStatus(taskId, startDate, endDate);
+            const taskProgress = progress[taskId] || { progress: 0 };
+            const statusColor = getStatusColor(status);
+            
+            // ใช้สีตามฝ่าย
+            const deptBg = getDepartmentColor(item.department, 'bg');
+            const deptBgLight = getDepartmentColor(item.department, 'bgLight');
+            const deptText = getDepartmentColor(item.department, 'text');
+            
+            // กำหนดสี border แบบตรงๆ
+            let borderColor = '#3B82F6'; // blue-500 default
+            if (item.department.includes('ฝนย')) {
+                borderColor = '#A855F7'; // purple-500
+            }
+            
+            // เพิ่มเครื่องหมายสำหรับงานต่อเนื่อง
+            const typeIndicator = type === 'ongoing' ? 
+                '<span class="text-xs text-gray-700 bg-gray-200 px-2 py-0.5 rounded font-semibold">Cont</span>' : 
+                '<span class="text-xs text-green-700 bg-green-100 px-2 py-0.5 rounded font-semibold">New</span>';
+
+            return `
+                <div class="task-card border-l-4 pl-3 py-2 ${deptBgLight} rounded cursor-pointer hover:shadow-md transition-all"
+                    style="border-left-color: ${borderColor};"
+                    onclick='openProgressModal(${JSON.stringify(item).replace(/'/g, "&#39;")}, "${taskId}")'>
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="flex items-center gap-1">
+                            ${typeIndicator}
+                            <span class="px-2 py-0.5 rounded-full text-xs font-semibold text-white ${statusColor}">
+                                ${getStatusText(status)}
+                            </span>
+                        </div>
+                        <span class="text-xs font-semibold text-gray-600">${taskProgress.progress}%</span>
+                    </div>
+                    <div class="text-xs ${deptText} font-medium mb-1">
+                        ${item.department.replace('ฝ่าย', '').replace(/\s*\(.*?\)\s*/g, '').trim()}
+                    </div>
+                    <div class="text-xs text-gray-600 mb-1">
+                        ${formatDate(startDate)} - ${formatDate(endDate)}
+                    </div>
+                    <div class="font-semibold text-sm text-gray-800 mb-1">
+                        ${item.category}
+                    </div>
+                    <div class="text-xs text-gray-600 mb-1">
+                        ${item.division}
+                    </div>
+                    <div class="text-sm text-gray-700 line-clamp-2">
+                        ${item.task}
+                    </div>
+                    <div class="mt-2 bg-gray-200 rounded-full h-1.5">
+                        <div class="${deptBg} rounded-full h-1.5 transition-all" style="width: ${taskProgress.progress}%"></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderReportView(filteredData) {
+            // คำนวณสถิติ
+            const stats = {
+                total: data.length,
+                notStarted: 0,
+                inProgress: 0,
+                onTrack: 0,
+                delayed: 0,
+                overdue: 0,
+                completed: 0,
+                totalProgress: 0
+            };
+
+            const departmentStats = {};
+            const monthStats = {};
+            const urgentTasksMap = new Map(); // ใช้ Map เพื่อป้องกันงานซ้ำ
+
+            data.forEach(item => {
+                const taskId = `${item.id}`;
+                const monthName = monthNumToName[item.month];
+                const { startDate, endDate } = calculateActualDates(item.month, item.year, item.startWeek, item.durationWeeks);
+                const status = getTaskStatus(taskId, startDate, endDate);
+                const taskProgress = progress[taskId] || { progress: 0 };
+
+                // นับสถานะ
+                stats[status] = (stats[status] || 0) + 1;
+                stats.totalProgress += taskProgress.progress;
+
+                // สถิติตามฝ่าย
+                if (!departmentStats[item.department]) {
+                    departmentStats[item.department] = {
+                        total: 0,
+                        completed: 0,
+                        inProgress: 0,
+                        delayed: 0,
+                        overdue: 0,
+                        totalProgress: 0
+                    };
+                }
+                departmentStats[item.department].total++;
+                departmentStats[item.department][status] = (departmentStats[item.department][status] || 0) + 1;
+                departmentStats[item.department].totalProgress += taskProgress.progress;
+
+                // สถิติตามเดือน
+                if (!monthStats[monthName]) {
+                    monthStats[monthName] = { total: 0, completed: 0 };
+                }
+                monthStats[monthName].total++;
+                if (status === 'completed') monthStats[monthName].completed++;
+
+                // งานเร่งด่วน (ล่าช้าหรือเกินกำหนด) - ใช้ Map เพื่อไม่ให้ซ้ำ
+                if (status === 'delayed' || status === 'overdue') {
+                    if (!urgentTasksMap.has(taskId)) {
+                        urgentTasksMap.set(taskId, { item, taskId, startDate, endDate, status, taskProgress });
+                    }
+                }
+            });
+            
+            // แปลง Map เป็น Array
+            const urgentTasks = Array.from(urgentTasksMap.values());
+
+            const avgProgress = Math.round(stats.totalProgress / stats.total);
+            const completionRate = Math.round((stats.completed / stats.total) * 100);
+
+            return `
+                <div class="space-y-6">
+                    <!-- ปุ่ม Print -->
+                    <div class="flex justify-end mb-4">
+                        <button onclick="window.print()" class="flex items-center gap-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-lg">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+                            </svg>
+                            พิมพ์รายงาน
+                        </button>
+                    </div>
+
+                    <!-- สถิติภาพรวม -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-blue-500">
+                            <div class="text-gray-600 text-sm font-medium mb-1">งานทั้งหมด</div>
+                            <div class="text-3xl font-bold text-gray-800">${stats.total}</div>
+                            <div class="text-xs text-gray-500 mt-1">รายการ</div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-green-500">
+                            <div class="text-gray-600 text-sm font-medium mb-1">เสร็จสิ้น</div>
+                            <div class="text-3xl font-bold text-green-600">${stats.completed}</div>
+                            <div class="text-xs text-gray-500 mt-1">${completionRate}% ของทั้งหมด</div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-orange-500">
+                            <div class="text-gray-600 text-sm font-medium mb-1">ล่าช้า</div>
+                            <div class="text-3xl font-bold text-orange-600">${stats.delayed || 0}</div>
+                            <div class="text-xs text-gray-500 mt-1">ต้องติดตาม</div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-red-500">
+                            <div class="text-gray-600 text-sm font-medium mb-1">เกินกำหนด</div>
+                            <div class="text-3xl font-bold text-red-600">${stats.overdue || 0}</div>
+                            <div class="text-xs text-gray-500 mt-1">เร่งด่วน</div>
+                        </div>
+                    </div>
+
+                    <!-- ความคืบหน้าโดยรวม -->
+                    <div class="bg-white rounded-lg shadow-lg p-6">
+                        <h3 class="text-xl font-bold text-gray-800 mb-4">ความคืบหน้าโดยรวม</h3>
+                        <div class="flex items-center gap-4">
+                            <div class="flex-1">
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-sm font-medium text-gray-700">ความคืบหน้าเฉลี่ย</span>
+                                    <span class="text-sm font-bold text-blue-600">${avgProgress}%</span>
+                                </div>
+                                <div class="bg-gray-200 rounded-full h-6">
+                                    <div class="bg-gradient-to-r from-blue-500 to-blue-600 rounded-full h-6 transition-all flex items-center justify-end pr-3" style="width: ${avgProgress}%">
+                                        <span class="text-white text-xs font-semibold">${avgProgress}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- สถิติตามฝ่าย -->
+                    <div class="bg-white rounded-lg shadow-lg p-6">
+                        <h3 class="text-xl font-bold text-gray-800 mb-4">รายงานตามฝ่าย</h3>
+                        <div class="space-y-6">
+                            ${Object.keys(departmentStats).map(dept => {
+                                const stat = departmentStats[dept];
+                                const deptAvgProgress = Math.round(stat.totalProgress / stat.total);
+                                const deptCompletion = Math.round((stat.completed / stat.total) * 100);
+                                const deptColor = getDepartmentColor(dept, 'gradient');
+                                const deptBg = getDepartmentColor(dept, 'bg');
+                                
+                                return `
+                                    <div class="border-l-4 ${deptBg.replace('bg-', 'border-')} pl-4">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <h4 class="font-bold text-gray-800">${dept}</h4>
+                                            <span class="text-sm text-gray-600">${stat.total} งาน</span>
+                                        </div>
+                                        
+                                        <div class="grid grid-cols-4 gap-3 mb-3">
+                                            <div class="text-center">
+                                                <div class="text-xs text-gray-600">เสร็จสิ้น</div>
+                                                <div class="text-lg font-bold text-green-600">${stat.completed || 0}</div>
+                                            </div>
+                                            <div class="text-center">
+                                                <div class="text-xs text-gray-600">กำลังดำเนินการ</div>
+                                                <div class="text-lg font-bold text-blue-600">${(stat.inProgress || 0) + (stat.on_track || 0)}</div>
+                                            </div>
+                                            <div class="text-center">
+                                                <div class="text-xs text-gray-600">ล่าช้า</div>
+                                                <div class="text-lg font-bold text-orange-600">${stat.delayed || 0}</div>
+                                            </div>
+                                            <div class="text-center">
+                                                <div class="text-xs text-gray-600">เกินกำหนด</div>
+                                                <div class="text-lg font-bold text-red-600">${stat.overdue || 0}</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="flex items-center gap-4">
+                                            <div class="flex-1">
+                                                <div class="flex justify-between mb-1">
+                                                    <span class="text-xs text-gray-600">ความคืบหน้า</span>
+                                                    <span class="text-xs font-bold text-gray-800">${deptAvgProgress}%</span>
+                                                </div>
+                                                <div class="bg-gray-200 rounded-full h-4">
+                                                    <div class="bg-gradient-to-r ${deptColor} rounded-full h-4 transition-all" style="width: ${deptAvgProgress}%"></div>
+                                                </div>
+                                            </div>
+                                            <div class="text-right">
+                                                <div class="text-xs text-gray-600">อัตราความสำเร็จ</div>
+                                                <div class="text-lg font-bold text-gray-800">${deptCompletion}%</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    <!-- งานที่ต้องติดตามเร่งด่วน -->
+                    ${urgentTasks.length > 0 ? `
+                        <div id="urgent-tasks-section" class="bg-white rounded-lg shadow-lg p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-2">
+                                    <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                                    </svg>
+                                    <h3 class="text-xl font-bold text-gray-800">งานที่ต้องติดตามเร่งด่วน</h3>
+                                    <span class="px-3 py-1 bg-red-100 text-red-800 text-sm font-bold rounded-full">${urgentTasks.length}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full">
+                                    <thead class="bg-red-50">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-700">สถานะ</th>
+                                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-700">ฝ่าย</th>
+                                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-700">หมวดงาน</th>
+                                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-700">วันที่กำหนด</th>
+                                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-700">ความคืบหน้า</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200">
+                                        ${(() => {
+                                            const startIndex = (urgentTasksPage - 1) * urgentTasksPerPage;
+                                            const endIndex = startIndex + urgentTasksPerPage;
+                                            const paginatedTasks = urgentTasks.slice(startIndex, endIndex);
+                                            
+                                            return paginatedTasks.map(({ item, taskId, startDate, endDate, status, taskProgress }) => {
+                                                const statusColor = getStatusColor(status);
+                                                return `
+                                                    <tr class="hover:bg-gray-50">
+                                                        <td class="px-4 py-3">
+                                                            <span class="px-2 py-1 rounded-full text-xs font-semibold text-white ${statusColor}">
+                                                                ${getStatusText(status)}
+                                                            </span>
+                                                        </td>
+                                                        <td class="px-4 py-3 text-sm text-gray-700">${item.department}</td>
+                                                        <td class="px-4 py-3 text-sm text-gray-800">${item.category}</td>
+                                                        <td class="px-4 py-3 text-sm text-gray-600">${formatDate(endDate)}</td>
+                                                        <td class="px-4 py-3">
+                                                            <div class="flex items-center gap-2">
+                                                                <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                                                    <div class="${statusColor} rounded-full h-2" style="width: ${taskProgress.progress}%"></div>
+                                                                </div>
+                                                                <span class="text-xs font-semibold text-gray-600">${taskProgress.progress}%</span>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                `;
+                                            }).join('');
+                                        })()}
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            ${urgentTasks.length > urgentTasksPerPage ? `
+                                <div class="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
+                                    <div class="text-sm text-gray-600">
+                                        แสดง ${((urgentTasksPage - 1) * urgentTasksPerPage) + 1}-${Math.min(urgentTasksPage * urgentTasksPerPage, urgentTasks.length)} จาก ${urgentTasks.length} รายการ
+                                    </div>
+                                    <div class="flex gap-2">
+                                        ${urgentTasksPage > 1 ? `
+                                            <button onclick="changeUrgentPage(${urgentTasksPage - 1})" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-medium">
+                                                ← ก่อนหน้า
+                                            </button>
+                                        ` : ''}
+                                        
+                                        <div class="flex gap-1">
+                                            ${(() => {
+                                                const totalPages = Math.ceil(urgentTasks.length / urgentTasksPerPage);
+                                                const pages = [];
+                                                
+                                                // แสดงหน้าแรกเสมอ
+                                                if (urgentTasksPage > 3) {
+                                                    pages.push(`
+                                                        <button onclick="changeUrgentPage(1)" class="px-3 py-2 ${urgentTasksPage === 1 ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'} rounded-lg transition-colors">
+                                                            1
+                                                        </button>
+                                                    `);
+                                                    if (urgentTasksPage > 4) {
+                                                        pages.push('<span class="px-3 py-2 text-gray-500">...</span>');
+                                                    }
+                                                }
+                                                
+                                                // แสดงหน้าใกล้เคียง
+                                                for (let i = Math.max(1, urgentTasksPage - 2); i <= Math.min(totalPages, urgentTasksPage + 2); i++) {
+                                                    pages.push(`
+                                                        <button onclick="changeUrgentPage(${i})" class="px-3 py-2 ${i === urgentTasksPage ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'} rounded-lg transition-colors font-medium">
+                                                            ${i}
+                                                        </button>
+                                                    `);
+                                                }
+                                                
+                                                // แสดงหน้าสุดท้ายเสมอ
+                                                if (urgentTasksPage < totalPages - 2) {
+                                                    if (urgentTasksPage < totalPages - 3) {
+                                                        pages.push('<span class="px-3 py-2 text-gray-500">...</span>');
+                                                    }
+                                                    pages.push(`
+                                                        <button onclick="changeUrgentPage(${totalPages})" class="px-3 py-2 ${urgentTasksPage === totalPages ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'} rounded-lg transition-colors">
+                                                            ${totalPages}
+                                                        </button>
+                                                    `);
+                                                }
+                                                
+                                                return pages.join('');
+                                            })()}
+                                        </div>
+                                        
+                                        ${urgentTasksPage < Math.ceil(urgentTasks.length / urgentTasksPerPage) ? `
+                                            <button onclick="changeUrgentPage(${urgentTasksPage + 1})" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-medium">
+                                                ถัดไป →
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+
+                    <!-- สถิติตามเดือน -->
+                    <div class="bg-white rounded-lg shadow-lg p-6">
+                        <h3 class="text-xl font-bold text-gray-800 mb-4">สถิติตามเดือน</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            ${monthOrder.map(month => {
+                                const stat = monthStats[month] || { total: 0, completed: 0 };
+                                const completion = stat.total > 0 ? Math.round((stat.completed / stat.total) * 100) : 0;
+                                return `
+                                    <div class="border rounded-lg p-4">
+                                        <div class="text-sm font-semibold text-gray-700 mb-2">${monthThai[month]}</div>
+                                        <div class="text-2xl font-bold text-gray-800 mb-1">${stat.total}</div>
+                                        <div class="text-xs text-gray-600 mb-2">งาน</div>
+                                        <div class="flex items-center gap-2">
+                                            <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                                <div class="bg-green-500 rounded-full h-2" style="width: ${completion}%"></div>
+                                            </div>
+                                            <span class="text-xs text-gray-600">${completion}%</span>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function changeUrgentPage(page) {
+            urgentTasksPage = page;
+            render();
+            // Scroll ไปที่ตารางงานเร่งด่วน
+            setTimeout(() => {
+                const urgentSection = document.querySelector('#urgent-tasks-section');
+                if (urgentSection) {
+                    urgentSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }, 100);
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            const filteredData = getFilteredData();
+            const uniqueProcesses = getUniqueProcesses();
+            const uniqueDivisions = getUniqueDivisions();
+            const uniqueDepartments = getUniqueDepartments();
+            const uniqueMonths = getUniqueMonths();
+
+            app.innerHTML = `
+                <div class="max-w-7xl mx-auto">
+                    <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+                        <!-- Header -->
+                        <div class="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white px-8 py-6">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h1 class="text-3xl font-bold mb-2">ระบบจัดการตารางงาน</h1>
+                                    <p class="text-blue-100">หน่วยงานในสังกัดผู้ช่วยผู้ว่าการแผนและพัฒนา | ปีงบประมาณ 2569</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Filters -->
+                        <div class="p-6 bg-gray-50 border-b no-print">
+                            <div class="flex flex-wrap gap-4 items-center mb-4">
+                                <!-- Search Bar -->
+                                <div class="flex-1 min-w-64">
+                                    <div class="relative">
+                                        <svg class="absolute left-3 top-3 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                        </svg>
+                                        <input type="text" placeholder="ค้นหางาน, กิจกรรม, หน่วยงาน..."
+                                            class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            value="${searchTerm}" oninput="searchTerm = this.value; render();" />
+                                    </div>
+                                </div>
+
+                                <!-- Filters -->
+                                <div class="flex gap-3 flex-wrap">
+                                    <select class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                                        value="${filterStatus}" onchange="filterStatus = this.value; render();">
+                                        <option value="all">สถานะทั้งหมด</option>
+                                        <option value="not_started" ${filterStatus === 'not_started' ? 'selected' : ''}>ยังไม่เริ่ม</option>
+                                        <option value="in_progress" ${filterStatus === 'in_progress' ? 'selected' : ''}>กำลังดำเนินการ</option>
+                                        <option value="on_track" ${filterStatus === 'on_track' ? 'selected' : ''}>ตามแผน</option>
+                                        <option value="delayed" ${filterStatus === 'delayed' ? 'selected' : ''}>ล่าช้า</option>
+                                        <option value="overdue" ${filterStatus === 'overdue' ? 'selected' : ''}>เกินกำหนด</option>
+                                        <option value="completed" ${filterStatus === 'completed' ? 'selected' : ''}>เสร็จสิ้น</option>
+                                    </select>
+
+                                    <select class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                                        value="${filterDepartment}" onchange="filterDepartment = this.value; render();">
+                                        <option value="all">ฝ่ายทั้งหมด</option>
+                                        ${uniqueDepartments.map(dept => {
+                                            const shortName = dept.replace('ฝ่าย', '').trim();
+                                            return `<option value="${dept}" ${filterDepartment === dept ? 'selected' : ''}>${shortName}</option>`;
+                                        }).join('')}
+                                    </select>
+
+                                    <select class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                                        value="${filterProcess}" onchange="filterProcess = this.value; render();">
+                                        <option value="all">กระบวนการทั้งหมด</option>
+                                        ${uniqueProcesses.map(p => `<option value="${p}" ${filterProcess === p ? 'selected' : ''} title="${p}">${truncateText(p, 50)}</option>`).join('')}
+                                    </select>
+
+                                    <select class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                                        value="${filterDivision}" onchange="filterDivision = this.value; render();">
+                                        <option value="all">กองทั้งหมด</option>
+                                        ${uniqueDivisions.map(d => `<option value="${d}" ${filterDivision === d ? 'selected' : ''} title="${d}">${truncateText(d, 40)}</option>`).join('')}
+                                    </select>
+
+                                    <select class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                                        value="${filterMonth}" onchange="filterMonth = this.value; render();">
+                                        <option value="all">เดือนทั้งหมด</option>
+                                        ${uniqueMonths.map(m => `<option value="${m}" ${filterMonth === m ? 'selected' : ''}>${monthThai[m]}</option>`).join('')}
+                                    </select>
+                                </div>
+
+                                <!-- View Toggle -->
+                                <div class="flex gap-2 bg-white rounded-lg p-1 border border-gray-300">
+                                    <button onclick="view = 'table'; render();"
+                                        class="px-4 py-2 rounded-md flex items-center gap-2 transition-all ${view === 'table' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                                        </svg>
+                                        ตาราง
+                                    </button>
+                                    <button onclick="view = 'timeline'; render();"
+                                        class="px-4 py-2 rounded-md flex items-center gap-2 transition-all ${view === 'timeline' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                        </svg>
+                                        Timeline
+                                    </button>
+                                    <button onclick="view = 'calendar'; render();"
+                                        class="px-4 py-2 rounded-md flex items-center gap-2 transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                        </svg>
+                                        ปฏิทิน
+                                    </button>
+                                    <button onclick="view = 'report'; urgentTasksPage = 1; render();"
+                                        class="px-4 py-2 rounded-md flex items-center gap-2 transition-all ${view === 'report' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                        </svg>
+                                        รายงาน
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="text-sm text-gray-600">
+                                แสดง <span class="font-semibold text-blue-600">${filteredData.length}</span> จาก <span class="font-semibold">${data.length}</span> รายการ
+                            </div>
+                        </div>
+
+                        <!-- Content -->
+                        <div class="p-6">
+                            ${view === 'table' ? renderTableView(filteredData) : 
+                              view === 'timeline' ? renderTimelineView(filteredData) : 
+                              view === 'report' ? renderReportView(filteredData) :
+                              renderCalendarView(filteredData)}
+                        </div>
+                    </div>
+                </div>
+
+                ${renderProgressModal()}
+            `;
+        }
+
+        render();
+    </script>
+</body>
+</html>
