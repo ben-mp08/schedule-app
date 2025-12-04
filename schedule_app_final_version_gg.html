@@ -75,7 +75,7 @@
         // Global Variables
         // ================================
         let data = [];
-     
+    
         let autoRefreshInterval = null;
         let lastSyncTime = null;
 
@@ -132,40 +132,63 @@
         /**
          * แปลงข้อมูลจาก Google Sheets เป็นรูปแบบที่เว็บแอปใช้
          */
-        function transformGoogleSheetsData(sheetsData) {
-            if (!sheetsData || !Array.isArray(sheetsData)) {
-                return [];
-            }
+        /**
+ * แปลงข้อมูลจาก Google Sheets เป็นรูปแบบที่เว็บแอปใช้
+ * + ใส่ debugRow เพื่อดูค่าที่อ่านมาจริง ๆ
+ */
+function debugRow(row, index) {
+    const rawProgress = row['%ความก้าวหน้า'] ?? row['progress'];
+    const rawStatus   = row['สถานะ'] ?? row['status'];
+
+    console.log('==============================');
+    console.log('📌 ROW #', index);
+    console.log('🔑 Keys:', Object.keys(row));
+    console.log('🧱 Raw row:', row);
+    console.log('📊 Raw progress value:', rawProgress, ' -> parseInt =', parseInt(rawProgress));
+    console.log('✅ Raw status value:', rawStatus);
+    console.log('==============================');
+}
+
+function transformGoogleSheetsData(sheetsData) {
+    if (!sheetsData || !Array.isArray(sheetsData)) {
+        return [];
+    }
+    
+    return sheetsData.map((row, index) => {
+        // ดูค่าที่ Google Sheet ส่งมาจริง ๆ
+        debugRow(row, index);
+
+        return {
+            id: row['ID'] || row['taskId'] || '',
+            department: row['ฝ่าย'] || row['department'] || '',
+            division: row['กอง'] || row['division'] || '',
+            month: row['Start month'] || row['month'] || '',
+            year: row['YEAR'] || row['year'] || '',
+            week: row['Start WeeK'] || row['week'] || '',
+            duration: row['Duration week'] || row['duration'] || '',
+            process: row['Process ชื่อกระบวนการทำงาน'] || row['process'] || '',
+            category: row['หมวดงาน'] || row['category'] || '',
+            inputOwner: row['หน่วยงานเจ้าของ Input'] || row['inputOwner'] || '',
+            hasExternalInput: row['หน่วยงานเจ้าของ Input มีหน่วยงานภายนอกหรือไม่'] || row['hasExternalInput'] || '',
+            inputName: row['ชื่อ  Input'] || row['inputName'] || '',
+            task: row['Task กิจกรรม ทำอะไร'] || row['task'] || '',
+            outputName: row['ชื่อ Output'] || row['outputName'] || '',
+            outputReceiver: row['หน่วยงานที่รับ Output'] || row['outputReceiver'] || '',
+            hasExternalOutput: row['หน่วยงานที่รับ Output มีหน่วยงานภายนอกหรือไม่'] || row['hasExternalOutput'] || '',
             
-            return sheetsData.map(row => ({
-                id: row['ID'] || row['taskId'] || '',
-                department: row['ฝ่าย'] || row['department'] || '',
-                division: row['กอง'] || row['division'] || '',
-                month: row['Start month'] || row['month'] || '',
-                year: row['YEAR'] || row['year'] || '',
-                week: row['Start WeeK'] || row['week'] || '',
-                duration: row['Duration week'] || row['duration'] || '',
-                process: row['Process ชื่อกระบวนการทำงาน'] || row['process'] || '',
-                category: row['หมวดงาน'] || row['category'] || '',
-                inputOwner: row['หน่วยงานเจ้าของ Input'] || row['inputOwner'] || '',
-                hasExternalInput: row['หน่วยงานเจ้าของ Input มีหน่วยงานภายนอกหรือไม่'] || row['hasExternalInput'] || '',
-                inputName: row['ชื่อ  Input'] || row['inputName'] || '',
-                task: row['Task กิจกรรม ทำอะไร'] || row['task'] || '',
-                outputName: row['ชื่อ Output'] || row['outputName'] || '',
-                outputReceiver: row['หน่วยงานที่รับ Output'] || row['outputReceiver'] || '',
-                hasExternalOutput: row['หน่วยงานที่รับ Output มีหน่วยงานภายนอกหรือไม่'] || row['hasExternalOutput'] || '',
-                
-                // ข้อมูลสถานะและความคืบหน้า
-                status: row['สถานะ'] || row['status'] || 'not_started',
-                progress: parseInt(row['%ความก้าวหน้า'] || row['progress']) || 0,
-                actualStartDate: row['วันที่เริ่มจริง'] || row['actualStartDate'] || null,
-                actualEndDate: row['วันที่เสร็จจริง'] || row['actualEndDate'] || null,
-                responsible: row['ผู้รับผิดชอบ'] || row['responsible'] || '',
-                notes: row['หมายเหตุปัจจุบัน'] || row['notes'] || '',
-                lastUpdate: row['วันที่อัพเดตล่าสุด'] || row['lastUpdate'] || null,
-                updater: row['ผู้อัพเดต'] || row['updater'] || ''
-            }));
-        }
+            // ข้อมูลสถานะและความคืบหน้า
+            status: row['สถานะ'] || row['status'] || 'not_started',
+            progress: parseInt(row['%ความก้าวหน้า'] || row['progress']) || 0,
+            actualStartDate: row['วันที่เริ่มจริง'] || row['actualStartDate'] || null,
+            actualEndDate: row['วันที่เสร็จจริง'] || row['actualEndDate'] || null,
+            responsible: row['ผู้รับผิดชอบ'] || row['responsible'] || '',
+            notes: row['หมายเหตุปัจจุบัน'] || row['notes'] || '',
+            lastUpdate: row['วันที่อัพเดตล่าสุด'] || row['lastUpdate'] || null,
+            updater: row['ผู้อัพเดต'] || row['updater'] || ''
+        };
+    });
+}
+
 
         /**
          * บันทึกความคืบหน้าไปยัง Google Sheets
@@ -427,6 +450,59 @@
             }
         };
 
+   // ================================
+        // Data Processing Functions
+        // ================================
+function getTaskProgressById(taskId) {
+    // หา task object จาก data ตาม ID
+    const task = data.find(d => `${d.id}` === `${taskId}`);
+
+    // ถ้ามีข้อมูลใน progress (ที่มาจาก modal/การบันทึก) ให้ใช้ตัวนั้นก่อน
+    if (progress[taskId]) {
+        return {
+            status: progress[taskId].status || 'not_started',
+            progress: progress[taskId].progress || 0,
+            actualStartDate: progress[taskId].actualStartDate || null,
+            actualEndDate: progress[taskId].actualEndDate || null,
+            notes: progress[taskId].notes || ''
+        };
+    }
+
+    // ถ้ายังไม่เคยแก้ในหน้าเว็บ ให้ใช้ค่าจาก Google Sheet (ที่อยู่ใน data)
+    return {
+        status: task?.status || 'not_started',
+        progress: task?.progress || 0,
+        actualStartDate: task?.actualStartDate || null,
+        actualEndDate: task?.actualEndDate || null,
+        notes: task?.notes || ''
+    };
+}
+        function getFilteredData() {
+            return data.filter(item => {
+                if (currentFilters.department && item.department !== currentFilters.department) return false;
+                if (currentFilters.month && item.month !== currentFilters.month) return false;
+                if (currentFilters.status && getTaskStatus(item) !== currentFilters.status) return false;
+                if (currentFilters.search) {
+                    const searchLower = currentFilters.search.toLowerCase();
+                    return item.process.toLowerCase().includes(searchLower) ||
+                           item.task.toLowerCase().includes(searchLower) ||
+                           item.category.toLowerCase().includes(searchLower);
+                }
+                return true;
+            });
+        }
+
+        function getTaskStatus(task) {
+            return progress[task.id]?.status || task.status || 'not_started';
+        }
+
+        function getTaskProgress(task) {
+            return progress[task.id]?.progress || task.progress || 0;
+        }
+
+    
+
+        
         function getDepartmentColor(department, type = 'bg') {
             const colors = departmentColors[department];
             if (!colors) {
@@ -491,45 +567,25 @@
         }
 
         function getTaskStatus(taskId, startDate, endDate) {
-            const taskProgress = progress[taskId] || { status: 'not_started', progress: 0 };
-            const today = new Date();
-            today.setHours(0, 0, 0, 0); // Reset เวลาเป็น 00:00:00 สำหรับเปรียบเทียบวันที่
-            
-            const start = new Date(startDate);
-            start.setHours(0, 0, 0, 0);
-            
-            const end = new Date(endDate);
-            end.setHours(0, 0, 0, 0);
-            
-            // ถ้าเสร็จแล้ว
-            if (taskProgress.status === 'completed' || taskProgress.progress >= 100) return 'completed';
-            
-            // ถ้ายังไม่เริ่มและยังไม่ถึงวันเริ่ม
-            if (today < start && taskProgress.status === 'not_started') return 'not_started';
-            
-            // ถ้าเลยวันสิ้นสุดแล้วและยังไม่เสร็จ (งานต้องเริ่มแล้ว)
-            if (today > end && taskProgress.status !== 'completed' && taskProgress.progress < 100) {
-                return 'overdue';
-            }
-            
-            // ถ้าเริ่มช้ากว่ากำหนด
-            if (taskProgress.actualStartDate && new Date(taskProgress.actualStartDate) > start) {
-                return 'delayed';
-            }
-            
-            // ถ้ากำลังดำเนินการ
-            if (taskProgress.status === 'in_progress' && taskProgress.progress > 0) {
-                return 'in_progress';
-            }
-            
-            // ถ้าอยู่ในช่วงเวลาที่ต้องทำและเริ่มแล้ว
-            if (today >= start && today <= end) {
-                return 'on_track';
-            }
-            
-            return 'not_started';
-        }
+    const taskProgress = getTaskProgressById(taskId);   // 👈 แก้ตรงนี้
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
+
+    if (taskProgress.status === 'completed' || taskProgress.progress >= 100) return 'completed';
+    if (today < start && taskProgress.status === 'not_started') return 'not_started';
+    if (today > end && taskProgress.status !== 'completed' && taskProgress.progress < 100) return 'overdue';
+    if (taskProgress.actualStartDate && new Date(taskProgress.actualStartDate) > start) return 'delayed';
+    if (taskProgress.status === 'in_progress' && taskProgress.progress > 0) return 'in_progress';
+    if (today >= start && today <= end) return 'on_track';
+    return 'not_started';
+}
         function getStatusColor(status) {
             switch (status) {
                 case 'completed': return 'bg-green-500';
@@ -559,8 +615,8 @@
                 const { startDate, endDate } = calculateActualDates(
                     item.month,
                     item.year,
-                    item.startWeek,
-                    item.durationWeeks
+                    item.week,
+                    item.duration
                 );
                 const status = getTaskStatus(taskId, startDate, endDate);
 
@@ -637,8 +693,8 @@
             const { startDate, endDate } = calculateActualDates(
                 task.month,
                 task.year,
-                task.startWeek,
-                task.durationWeeks
+                task.week,
+                task.duration
             );
             const currentProgress = progress[taskId] || { 
                 status: 'not_started', 
@@ -697,7 +753,7 @@
                                     <div id="progressBar" class="bg-blue-600 rounded-full h-3 transition-all" style="width: ${currentProgress.progress}%"></div>
                                 </div>
                             </div>
-
+<!--
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-semibold text-gray-700 mb-2">วันที่เริ่มจริง</label>
@@ -716,17 +772,21 @@
                                 <textarea name="notes" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                     placeholder="บันทึกข้อมูลเพิ่มเติม...">${currentProgress.notes || ''}</textarea>
                             </div>
+
+                            -->
                         </form>
 
                         <div class="flex gap-3 mt-6">
+                          <!--
                             <button onclick="saveProgress()" class="flex-1 bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                 </svg>
                                 บันทึก
                             </button>
-                            <button onclick="closeProgressModal()" class="px-6 py-2 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50 transition-colors">
-                                ยกเลิก
+                            -->
+                            <button onclick="closeProgressModal()" class="flex-1 bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                                ปิด
                             </button>
                         </div>
                     </div>
@@ -740,15 +800,15 @@
                     <table class="min-w-full bg-white border border-gray-300">
                         <thead class="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
                             <tr>
-                                <th class="px-4 py-3 text-left text-sm font-semibold">สถานะ</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold w-30">สถานะ</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">ความก้าวหน้า</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold">เดือน</th>
+                                
                                 <th class="px-4 py-3 text-left text-sm font-semibold">วันที่เริ่ม</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">วันที่สิ้นสุด</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">กอง</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">หมวดงาน</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold">งาน/กิจกรรม</th>
-                                <th class="px-4 py-3 text-center text-sm font-semibold">จัดการ</th>
+                               
                             </tr>
                         </thead>
                         <tbody>
@@ -758,19 +818,19 @@
                                 const { startDate, endDate } = calculateActualDates(
                                     item.month,
                                     item.year,
-                                    item.startWeek,
-                                    item.durationWeeks
+                                    item.week,
+                                    item.duration
                                 );
                                 const status = getTaskStatus(taskId, startDate, endDate);
-                                const taskProgress = progress[taskId] || { progress: 0 };
+const taskProgress = getTaskProgressById(taskId);
                                 const statusColor = getStatusColor(status);
 
                                 return `
                                     <tr class="${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'} hover:bg-blue-50 transition-colors">
-                                        <td class="px-4 py-3">
-                                            <span class="px-3 py-1 rounded-full text-xs font-semibold text-white ${statusColor}">
-                                                ${getStatusText(status)}
-                                            </span>
+                                        <td class="px-4 py-3 w-30 whitespace-nowrap">
+                                            <span class="px-3 py-1 rounded-full text-xs font-semibold text-white ${statusColor} inline-block whitespace-nowrap">
+        ${getStatusText(status)}
+    </span>
                                         </td>
                                         <td class="px-4 py-3">
                                             <div class="flex items-center gap-2">
@@ -780,18 +840,13 @@
                                                 <span class="text-xs font-semibold text-gray-600 w-10 text-right">${taskProgress.progress}%</span>
                                             </div>
                                         </td>
-                                        <td class="px-4 py-3 text-sm">${monthThai[monthName]}</td>
+                                      
                                         <td class="px-4 py-3 text-sm text-gray-700">${formatDate(startDate)}</td>
                                         <td class="px-4 py-3 text-sm text-gray-700">${formatDate(endDate)}</td>
                                         <td class="px-4 py-3 text-sm text-gray-800">${item.division}</td>
                                         <td class="px-4 py-3 text-sm text-gray-700">${item.category}</td>
                                         <td class="px-4 py-3 text-sm text-gray-700">${item.task}</td>
-                                        <td class="px-4 py-3 text-center">
-                                            <button onclick='openProgressModal(${JSON.stringify(item).replace(/'/g, "&#39;")}, "${taskId}")'
-                                                class="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors">
-                                                อัปเดต
-                                            </button>
-                                        </td>
+                                        
                                     </tr>
                                 `;
                             }).join('')}
@@ -811,7 +866,7 @@
 
         function renderTimelineView(filteredData) {
             const allDates = filteredData.flatMap(item => {
-                const { startDate, endDate } = calculateActualDates(item.month, item.year, item.startWeek, item.durationWeeks);
+                const { startDate, endDate } = calculateActualDates(item.month, item.year, item.week, item.duration);
                 return [startDate, endDate];
             });
             
@@ -868,7 +923,7 @@
                         <div class="space-y-2">
                             ${filteredData.map((item) => {
                                 const taskId = `${item.id}`;
-                                const { startDate, endDate } = calculateActualDates(item.month, item.year, item.startWeek, item.durationWeeks);
+                                const { startDate, endDate } = calculateActualDates(item.month, item.year, item.week, item.duration);
                                 const status = getTaskStatus(taskId, startDate, endDate);
                                 const statusColor = getStatusColor(status);
                                 
@@ -877,18 +932,18 @@
                                 
                                 return `
                                     <div class="flex items-center">
-                                        <div class="w-72 flex-shrink-0 pr-4 text-sm text-gray-700 truncate" title="${item.category}">
-                                            ${item.category}
+                                        <div class="w-72 flex-shrink-0 pr-4 text-sm text-gray-700 truncate" title="${item.task}">
+                                            ${item.task}
                                         </div>
                                         <div class="flex-1 relative h-8">
                                             <div 
                                                 class="timeline-bar absolute h-6 ${statusColor} rounded cursor-pointer"
                                                 style="left: ${leftPercent}%; width: ${Math.max(widthPercent, 0.5)}%; min-width: 4px;"
                                                 onclick='openProgressModal(${JSON.stringify(item).replace(/'/g, "&#39;")}, "${taskId}")'
-                                                title="${item.category}\n${formatDate(startDate)} - ${formatDate(endDate)}\nระยะเวลา: ${item.durationWeeks} สัปดาห์\nสถานะ: ${getStatusText(status)}"
+                                                title="${item.task}\n${formatDate(startDate)} - ${formatDate(endDate)}\nระยะเวลา: ${item.duration} สัปดาห์\nสถานะ: ${getStatusText(status)}"
                                             >
                                                 <span class="text-white text-xs px-2 truncate block leading-6">
-                                                    ${item.durationWeeks}w
+                                                    ${item.duration}w
                                                 </span>
                                             </div>
                                         </div>
@@ -899,6 +954,7 @@
                     </div>
                 </div>
             `;
+            
         }
 
         function renderCalendarView(filteredData) {
@@ -909,8 +965,8 @@
                 const { startDate, endDate } = calculateActualDates(
                     item.month,
                     item.year,
-                    item.startWeek,
-                    item.durationWeeks
+                    item.week,
+                    item.duration
                 );
                 
                 // วนลูปทุกเดือนที่งานนี้ครอบคลุม
@@ -1020,11 +1076,11 @@
             const { startDate, endDate } = calculateActualDates(
                 item.month,
                 item.year,
-                item.startWeek,
-                item.durationWeeks
+                item.week,
+                item.duration
             );
             const status = getTaskStatus(taskId, startDate, endDate);
-            const taskProgress = progress[taskId] || { progress: 0 };
+const taskProgress = getTaskProgressById(taskId);
             const statusColor = getStatusColor(status);
             
             // ใช้สีตามฝ่าย
@@ -1098,9 +1154,9 @@
             data.forEach(item => {
                 const taskId = `${item.id}`;
                 const monthName = monthNumToName[item.month];
-                const { startDate, endDate } = calculateActualDates(item.month, item.year, item.startWeek, item.durationWeeks);
+                const { startDate, endDate } = calculateActualDates(item.month, item.year, item.week, item.duration);
                 const status = getTaskStatus(taskId, startDate, endDate);
-                const taskProgress = progress[taskId] || { progress: 0 };
+                const taskProgress = getTaskProgressById(taskId);
 
                 // นับสถานะ
                 stats[status] = (stats[status] || 0) + 1;
@@ -1565,7 +1621,38 @@
             `;
         }
 
+        //render();
+
+        // เริ่มต้นระบบเมื่อเปิดหน้าเว็บ
+(async function init() {
+    try {
+        if (GOOGLE_SHEETS_CONFIG.USE_GOOGLE_SHEETS) {
+            const newData = await loadDataFromGoogleSheets();
+            if (newData) {
+                data = newData;
+            } else {
+                // ถ้าดึงจาก Google Sheets ไม่ได้ ให้ใช้ mockData เป็น fallback
+                data = mockData;
+            }
+        } else {
+            // ถ้าไม่ใช้ Google Sheets ให้ใช้ mockData
+            data = mockData;
+        }
+
+        // แสดงหน้าจอหลัก
         render();
+
+        // เริ่ม auto refresh ตามค่า REFRESH_INTERVAL
+        startAutoRefresh();
+    } catch (e) {
+        console.error('เกิดข้อผิดพลาดใน init():', e);
+        // ถ้ามีปัญหา ให้ลองใช้ mockData แล้ว render อย่างน้อยให้หน้าไม่ว่าง
+        if (!data || data.length === 0) {
+            data = mockData;
+            render();
+        }
+    }
+})();
     </script>
 </body>
 </html>
